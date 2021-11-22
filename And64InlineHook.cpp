@@ -26,6 +26,8 @@
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  SOFTWARE.
  */
+#include <cstdio>
+#include <cstring>
 #define  __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include <stdlib.h>
@@ -34,12 +36,34 @@
 
 #if defined(__aarch64__)
 
+extern "C"{
+#define __attribute                __attribute__
+#define aligned(x)                 __aligned__(x)
+#define __intval(p)                reinterpret_cast<intptr_t>(p)
+#define __uintval(p)               reinterpret_cast<uintptr_t>(p)
+#define __ptr(p)                   reinterpret_cast<void *>(p)
+#define __page_size                4096
+#define __page_align(n)            __align_up(static_cast<uintptr_t>(n), __page_size)
+#define __ptr_align(x)             __ptr(__align_down(reinterpret_cast<uintptr_t>(x), __page_size))
+#define __align_up(x, n)           (((x) + ((n) - 1)) & ~((n) - 1))
+#define __align_down(x, n)         ((x) & -(n))
+#define __countof(x)               static_cast<intptr_t>(sizeof(x) / sizeof((x)[0])) // must be signed
+#define __atomic_increase(p)       __sync_add_and_fetch(p, 1)
+#define __sync_cmpswap(p, v, n)    __sync_bool_compare_and_swap(p, v, n)
+#define __predict_true(exp)        __builtin_expect((exp) != 0, 1)
+#define __flush_cache(c, n)        __builtin___clear_cache(reinterpret_cast<char *>(c), reinterpret_cast<char *>(c) + n)
+#define __make_rwx(p, n)           ::mprotect(__ptr_align(p), \
+                                              __page_align(__uintval(p) + n) != __page_align(__uintval(p)) ? __page_align(n) + __page_size : __page_align(n), \
+                                              PROT_READ | PROT_WRITE | PROT_EXEC)
+}
+
 #include "And64InlineHook.hpp"
 #define   A64_MAX_INSTRUCTIONS 5
 #define   A64_MAX_REFERENCES   (A64_MAX_INSTRUCTIONS * 2)
 #define   A64_NOP              0xd503201fu
 #define   A64_JNIEXPORT        __attribute__((visibility("default")))
 #define   A64_LOGE(...)        ((void)__android_log_print(ANDROID_LOG_ERROR, "A64_HOOK", __VA_ARGS__))
+#define LOGW(...)              ((void)__android_log_print(ANDROID_LOG_WARN, "A64_HOOK", __VA_ARGS__))
 #ifndef NDEBUG
 # define  A64_LOGI(...)        ((void)__android_log_print(ANDROID_LOG_INFO, "A64_HOOK", __VA_ARGS__))
 #else
@@ -456,25 +480,6 @@ static void __fix_instructions(uint32_t *__restrict inp, int32_t count, uint32_t
 //-------------------------------------------------------------------------
 
 extern "C" {
-#define __attribute                __attribute__
-#define aligned(x)                 __aligned__(x)
-#define __intval(p)                reinterpret_cast<intptr_t>(p)
-#define __uintval(p)               reinterpret_cast<uintptr_t>(p)
-#define __ptr(p)                   reinterpret_cast<void *>(p)
-#define __page_size                4096
-#define __page_align(n)            __align_up(static_cast<uintptr_t>(n), __page_size)
-#define __ptr_align(x)             __ptr(__align_down(reinterpret_cast<uintptr_t>(x), __page_size))
-#define __align_up(x, n)           (((x) + ((n) - 1)) & ~((n) - 1))
-#define __align_down(x, n)         ((x) & -(n))
-#define __countof(x)               static_cast<intptr_t>(sizeof(x) / sizeof((x)[0])) // must be signed
-#define __atomic_increase(p)       __sync_add_and_fetch(p, 1)
-#define __sync_cmpswap(p, v, n)    __sync_bool_compare_and_swap(p, v, n)
-#define __predict_true(exp)        __builtin_expect((exp) != 0, 1)
-#define __flush_cache(c, n)        __builtin___clear_cache(reinterpret_cast<char *>(c), reinterpret_cast<char *>(c) + n)
-#define __make_rwx(p, n)           ::mprotect(__ptr_align(p), \
-                                              __page_align(__uintval(p) + n) != __page_align(__uintval(p)) ? __page_align(n) + __page_size : __page_align(n), \
-                                              PROT_READ | PROT_WRITE | PROT_EXEC)
-
     //-------------------------------------------------------------------------
 
     static __attribute((aligned(__page_size))) uint32_t __insns_pool[A64_MAX_BACKUPS][A64_MAX_INSTRUCTIONS * 10];
@@ -529,7 +534,8 @@ extern "C" {
                 __fix_instructions(original, count, trampoline);
             } //if
 
-            if (__make_rwx(original, 5 * sizeof(uint32_t)) == 0) {
+            int errno = __make_rwx(original, 5 * sizeof(uint32_t));
+            if (errno == 0) {
                 if (count == 5) {
                     original[0] = A64_NOP;
                     ++original;
@@ -555,7 +561,8 @@ extern "C" {
                 __fix_instructions(original, 1, trampoline);
             } //if
 
-            if (__make_rwx(original, 1 * sizeof(uint32_t)) == 0) {
+            int errno = __make_rwx(original, 1 * sizeof(uint32_t)) == 0;
+            if (errno == 0) {
                 __sync_cmpswap(original, *original, 0x14000000u | (pc_offset & mask)); // "B" ADDR_PCREL26
                 __flush_cache(symbol, 1 * sizeof(uint32_t));
 
