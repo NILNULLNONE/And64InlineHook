@@ -561,7 +561,7 @@ extern "C" {
                 __fix_instructions(original, 1, trampoline);
             } //if
 
-            int errno = __make_rwx(original, 1 * sizeof(uint32_t)) == 0;
+            int errno = __make_rwx(original, 1 * sizeof(uint32_t));
             if (errno == 0) {
                 __sync_cmpswap(original, *original, 0x14000000u | (pc_offset & mask)); // "B" ADDR_PCREL26
                 __flush_cache(symbol, 1 * sizeof(uint32_t));
